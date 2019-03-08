@@ -2,24 +2,33 @@
   "name": "gpc.js",
   "version": "1.0.1",
   "description": "A port of General Polygon Clipper",
-  "main": "dist/gpc.js",
-  "types": "dist/gpc.d.ts",
-  "files": ["dist/**/*"],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
   "scripts": {
     "prepare": "npm run build",
-    "build": "node ./node_modules/typescript/bin/tsc"
+    "build": "node ./node_modules/typescript/bin/tsc",
+    "asbuild": "asc assembly/index.ts -b build/optimized.wasm -t build/optimized.wat --sourceMap --validate -O3z"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gliese1337/gpc.git"
   },
-  "keywords": ["polygon", "geometry"],
+  "keywords": [
+    "polygon",
+    "geometry"
+  ],
   "author": "Logan R. Kearsley",
   "bugs": {
     "url": "https://github.com/gliese1337/gpc/issues"
   },
   "homepage": "https://github.com/gliese1337/gpc#readme",
   "devDependencies": {
+    "@types/node": "^11.10.5",
+    "@types/webassembly-js-api": "0.0.2",
+    "assemblyscript": "github:AssemblyScript/assemblyscript",
     "typescript": "^3.3.3333"
   }
 }

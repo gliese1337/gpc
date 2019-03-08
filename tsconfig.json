@@ -10,9 +10,11 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "outDir": "dist",
+    "outDir": "dist"
   },
+  "include": ["./src/index.ts"],
   "exclude": [
+    "assembly",
     "node_modules",
     "dist",
     ".npm"
