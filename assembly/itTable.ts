@@ -87,7 +87,7 @@ export class ItNodeTable {
 
         /* Process each AET edge */
         for (let edge = aet.top; edge !== null; edge = edge.next) {
-            if ((edge.bstate.above === BUNDLE_HEAD) ||
+            if ((edge.bstate_above === BUNDLE_HEAD) ||
                 (edge.bundle.above[CLIP] !== 0) ||
                 (edge.bundle.above[SUBJ] !== 0)) {
                 st = addSTEdge(st, this, edge as EdgeNode, dy);
@@ -96,15 +96,15 @@ export class ItNodeTable {
     }
 
     public analyzeIntersection(op: u32, e0: EdgeNode, e1: EdgeNode): u32 {
-        let inClip = (((e0.bundle.above[CLIP] !== 0) && (e0.bside.clip === 0)) ||
-            ((e1.bundle.above[CLIP] !== 0) && (e1.bside.clip !== 0)) ||
+        let inClip = (((e0.bundle.above[CLIP] !== 0) && (e0.bside_clip === 0)) ||
+            ((e1.bundle.above[CLIP] !== 0) && (e1.bside_clip !== 0)) ||
             ((e0.bundle.above[CLIP] === 0) && (e1.bundle.above[CLIP] === 0) &&
-            ((e0.bside.clip & e1.bside.clip) === 1))) ? 1 : 0;
+            ((e0.bside_clip & e1.bside_clip) === 1))) ? 1 : 0;
 
-        let inSubj = (((e0.bundle.above[SUBJ] !== 0) && (e0.bside.subj === 0)) ||
-            ((e1.bundle.above[SUBJ] !== 0) && (e1.bside.subj !== 0)) ||
+        let inSubj = (((e0.bundle.above[SUBJ] !== 0) && (e0.bside_subj === 0)) ||
+            ((e1.bundle.above[SUBJ] !== 0) && (e1.bside_subj !== 0)) ||
             ((e0.bundle.above[SUBJ] === 0) && (e1.bundle.above[SUBJ] === 0) &&
-            ((e0.bside.subj & e1.bside.subj) === 1))) ? 1 : 0;
+            ((e0.bside_subj & e1.bside_subj) === 1))) ? 1 : 0;
 
         let tr = 0;
         let tl = 0;

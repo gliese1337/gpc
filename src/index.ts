@@ -33,19 +33,24 @@ const poly_dif_many: () => ptr = exports.poly_dif_many;
 export class Polygon {
   private constructor(public pointer: ptr) { }
 
-  private static n_ary(op: () => ptr, ...p: Polygon[]): Polygon | null {
+  private static n_ary(bin: (a: ptr, b: ptr) => ptr, mult: () => ptr, p: Polygon[]): Polygon | null {
+    switch (p.length) {
+      case 0: return null;
+      case 1: return p[0];
+      case 2: return new Polygon(bin(p[0].pointer, p[1].pointer))
+    }
+
     for (const { pointer } of p) {
       stage(pointer);
     }
   
-    const ptr = op();
+    const ptr = mult();
     reset();
     return ptr ? new Polygon(ptr) : null;
   }
 
   public static intersection(...p: Polygon[]): Polygon | null {
-    if (p.length === 2) return new Polygon(poly_int(p[0].pointer, p[1].pointer));
-    return Polygon.n_ary(poly_int_many, ...p);
+    return Polygon.n_ary(poly_int, poly_int_many, p);
   }
   
   public intersection(...p: Polygon[]): Polygon | null {
@@ -53,8 +58,7 @@ export class Polygon {
   }
 
   public static union(...p: Polygon[]): Polygon | null {
-    if (p.length === 2) return new Polygon(poly_add(p[0].pointer, p[1].pointer));
-    return Polygon.n_ary(poly_add_many, ...p);
+    return Polygon.n_ary(poly_add, poly_add_many, p);
   }
 
   public union(...p: Polygon[]): Polygon | null {
@@ -62,8 +66,7 @@ export class Polygon {
   }
 
   public static xor(...p: Polygon[]): Polygon | null {
-    if (p.length === 2) return new Polygon(poly_xor(p[0].pointer, p[1].pointer));
-    return Polygon.n_ary(poly_xor_many, ...p);
+    return Polygon.n_ary(poly_xor, poly_xor_many, p);
   }
 
   public xor(...p: Polygon[]): Polygon | null {
@@ -71,8 +74,7 @@ export class Polygon {
   }
 
   public static difference(...p: Polygon[]): Polygon | null {
-    if (p.length === 2) return new Polygon(poly_dif(p[0].pointer, p[1].pointer));
-    return Polygon.n_ary(poly_dif_many, ...p);
+    return Polygon.n_ary(poly_dif, poly_dif_many, p);
   }
 
   public difference(...p: Polygon[]): Polygon | null {

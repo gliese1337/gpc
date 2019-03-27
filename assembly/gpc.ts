@@ -1,5 +1,5 @@
 import { ScanBeamTreeEntries } from './sbt';
-import { EdgeNode, BundleSide, UNBUNDLED } from './edgeNode';
+import { EdgeNode, UNBUNDLED } from './edgeNode';
 import { PolygonNode, TopPolygonNode } from './polygonNode';
 import { Polygon } from './polygon';
 import { AetTree } from './aet';
@@ -7,6 +7,7 @@ import { EdgeTable } from './edgeTable';
 import { ItNodeTable } from './itTable';
 import * as VertexType from './vertexType';
 import { LmtTable } from './lmtTable';
+import { Rectangle } from './rectangle';
 import { SUBJ, CLIP, RIGHT, LEFT, INT, DIF, ADD, XOR } from './constants';
 import { NEXT_INDEX, PREV_INDEX } from './util';
 
@@ -42,15 +43,20 @@ export function clip(op: u32, subject: Polygon, clipper: Polygon): Polygon {
     let sEmpty = subject.isEmpty;
     let cEmpty = clipper.isEmpty;
 
-    /* Test for trivial NULL result cases */
-    if ((cEmpty && op === INT) ||
-        (sEmpty && (cEmpty || op === INT || op === DIF))
-    ) {
-        return new Polygon([], []);
+    /* Test for trivial cases */
+    if (cEmpty) {
+        return op === INT ? clipper : subject;
+    }
+
+    if (sEmpty) {
+        switch(op) {
+            case INT: case DIF: return subject;
+            case ADD: case XOR: return clipper;
+        }
     }
 
     /* Identify potentialy contributing contours */
-    if ((op === INT || op === DIF) && !(sEmpty || cEmpty)) {
+    if (op === INT || op === DIF) {
         miniMaxTest(subject, clipper, op);
     }
 
@@ -68,7 +74,7 @@ export function clip(op: u32, subject: Polygon, clipper: Polygon): Polygon {
 
     /* Return a NULL result if no contours contribute */
     if (lmtTable.top === null) {
-        return new Polygon([], []);
+        return new Polygon(null, null);
     }
 
     return process_scanbeams(op, lmtTable, sbte).getResult();
@@ -82,11 +88,9 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
 
     let aet = new AetTree();
 
-    let parity: BundleSide = {
-        /* Invert clip polygon for difference operation */
-        clip: op === DIF ? RIGHT : LEFT,
-        subj: LEFT,
-    };
+    /* Invert clip polygon for difference operation */
+    let parity_clip = op === DIF ? RIGHT : LEFT;
+    let parity_subj = LEFT;
 
     let scanbeam: u32 = 0;
     let localMin = lmtTable.top;
@@ -139,8 +143,8 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
             }
 
             /* Set bundle side */
-            edge.bside.clip = parity.clip;
-            edge.bside.subj = parity.subj;
+            edge.bside_clip = parity_clip;
+            edge.bside_subj = parity_subj;
 
             let contributing = false;
             let br = 0;
@@ -150,45 +154,45 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
 
             /* Determine contributing status and quadrant occupancies */
             if ((op === DIF) || (op === INT)) {
-                contributing = ((exists_clip!== 0) && ((parity.subj !== 0) || (horiz_subj !== 0))) ||
-                    ((exists_subj !== 0) && ((parity.clip !== 0) || (horiz_clip !== 0))) ||
-                    ((exists_clip !== 0) && (exists_subj !== 0) && (parity.clip === parity.subj));
+                contributing = ((exists_clip!== 0) && ((parity_subj !== 0) || (horiz_subj !== 0))) ||
+                    ((exists_subj !== 0) && ((parity_clip !== 0) || (horiz_clip !== 0))) ||
+                    ((exists_clip !== 0) && (exists_subj !== 0) && (parity_clip === parity_subj));
 
-                br = parity.clip & parity.subj;
-                bl = (parity.clip ^ edge.bundle.above[CLIP]) & (parity.subj ^ edge.bundle.above[SUBJ]);
-                tr = (parity.clip ^ (horiz_clip !== NH ? 1 : 0)) & (parity.subj ^ (horiz_subj !== NH ? 1 : 0));
-                tl = (parity.clip ^ (horiz_clip !== NH ? 1 : 0) ^ edge.bundle.below[CLIP]) &
-                    (parity.subj ^ (horiz_subj !== NH ? 1 : 0) ^ edge.bundle.below[SUBJ]);
+                br = parity_clip & parity_subj;
+                bl = (parity_clip ^ edge.bundle.above[CLIP]) & (parity_subj ^ edge.bundle.above[SUBJ]);
+                tr = (parity_clip ^ (horiz_clip !== NH ? 1 : 0)) & (parity_subj ^ (horiz_subj !== NH ? 1 : 0));
+                tl = (parity_clip ^ (horiz_clip !== NH ? 1 : 0) ^ edge.bundle.below[CLIP]) &
+                    (parity_subj ^ (horiz_subj !== NH ? 1 : 0) ^ edge.bundle.below[SUBJ]);
             } else if (op === XOR) {
                 contributing = (exists_clip !== 0) || (exists_subj !== 0);
 
-                br = parity.clip ^ parity.subj;
-                bl = (parity.clip ^ edge.bundle.above[CLIP]) ^ (parity.subj ^ edge.bundle.above[SUBJ]);
-                tr = parity.clip ^ (horiz_clip !== NH ? 1 : 0) ^ parity.subj ^ (horiz_subj !== NH ? 1 : 0);
-                tl = parity.clip ^ (horiz_clip !== NH ? 1 : 0) ^ edge.bundle.below[CLIP]
-                    ^ parity.subj ^ (horiz_subj !== NH ? 1 : 0) ^ edge.bundle.below[SUBJ];
+                br = parity_clip ^ parity_subj;
+                bl = (parity_clip ^ edge.bundle.above[CLIP]) ^ (parity_subj ^ edge.bundle.above[SUBJ]);
+                tr = parity_clip ^ (horiz_clip !== NH ? 1 : 0) ^ parity_subj ^ (horiz_subj !== NH ? 1 : 0);
+                tl = parity_clip ^ (horiz_clip !== NH ? 1 : 0) ^ edge.bundle.below[CLIP]
+                    ^ parity_subj ^ (horiz_subj !== NH ? 1 : 0) ^ edge.bundle.below[SUBJ];
             } else if (op === ADD) {
-                contributing = ((exists_clip !== 0) && (!(parity.subj !== 0) || (horiz_subj !== 0))) ||
-                    ((exists_subj !== 0) && (!(parity.clip !== 0) || (horiz_clip !== 0))) ||
-                    ((exists_clip !== 0) && (exists_subj !== 0) && (parity.clip === parity.subj));
+                contributing = ((exists_clip !== 0) && (!(parity_subj !== 0) || (horiz_subj !== 0))) ||
+                    ((exists_subj !== 0) && (!(parity_clip !== 0) || (horiz_clip !== 0))) ||
+                    ((exists_clip !== 0) && (exists_subj !== 0) && (parity_clip === parity_subj));
 
-                br = parity.clip | parity.subj;
-                bl = (parity.clip ^ edge.bundle.above[CLIP]) | (parity.subj ^ edge.bundle.above[SUBJ]);
-                tr = (parity.clip ^ (horiz_clip !== NH ? 1 : 0)) | (parity.subj ^ ((horiz_subj !== NH) ? 1 : 0));
-                tl = (parity.clip ^ (horiz_clip !== NH ? 1 : 0) ^ edge.bundle.below[CLIP]) |
-                    (parity.subj ^ (horiz_subj !== NH ? 1 : 0) ^ edge.bundle.below[SUBJ]);
+                br = parity_clip | parity_subj;
+                bl = (parity_clip ^ edge.bundle.above[CLIP]) | (parity_subj ^ edge.bundle.above[SUBJ]);
+                tr = (parity_clip ^ (horiz_clip !== NH ? 1 : 0)) | (parity_subj ^ ((horiz_subj !== NH) ? 1 : 0));
+                tl = (parity_clip ^ (horiz_clip !== NH ? 1 : 0) ^ edge.bundle.below[CLIP]) |
+                    (parity_subj ^ (horiz_subj !== NH ? 1 : 0) ^ edge.bundle.below[SUBJ]);
             }
 
             /* Update parity */
-            parity.clip ^= edge.bundle.above[CLIP];
-            parity.subj ^= edge.bundle.above[SUBJ];
+            parity_clip ^= edge.bundle.above[CLIP];
+            parity_subj ^= edge.bundle.above[SUBJ];
 
             /* Update horizontal state */
             if (exists_clip !== 0) {
-                horiz_clip = transition(horiz_clip, ((exists_clip - 1) << 1) + parity.clip);
+                horiz_clip = transition(horiz_clip, ((exists_clip - 1) << 1) + parity_clip);
             }
             if (exists_subj !== 0) {
-                horiz_subj = transition(horiz_subj, ((exists_subj - 1) << 1) + parity.subj);
+                horiz_subj = transition(horiz_subj, ((exists_subj - 1) << 1) + parity_subj);
             }
 
             if (!contributing) {
@@ -202,7 +206,7 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
                 case VertexType.IMN:
                     cf = outPoly.addLocalMin(xb, yb);
                     px = xb;
-                    edge.outp.above = cf;
+                    edge.outp_above = cf;
                     break;
                 case VertexType.ERI:
                     //if (cf === null) throw new Error("Unexpected Null Polygon");
@@ -210,23 +214,23 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
                         cf.addRight(xb, yb);
                         px = xb;
                     }
-                    edge.outp.above = cf;
+                    edge.outp_above = cf;
                     cf = null;
                     break;
                 case VertexType.ELI:
-                    cf = edge.outp.below;
+                    cf = edge.outp_below;
                     //if (cf === null) throw new Error("Unexpected Null Polygon");
                     cf.addLeft(xb, yb);
                     px = xb;
                     break;
                 case VertexType.EMX:
                     //if (cf === null) throw new Error("Unexpected Null Polygon");
-                    //if (edge.outp.below === null) throw new Error("Unexpected Null Polygon");
+                    //if (edge.outp_below === null) throw new Error("Unexpected Null Polygon");
                     if (xb !== px) {
                         cf.addLeft(xb, yb);
                         px = xb;
                     }
-                    outPoly.mergeRight(cf as PolygonNode, edge.outp.below as PolygonNode);
+                    outPoly.mergeRight(cf as PolygonNode, edge.outp_below as PolygonNode);
                     cf = null;
                     break;
                 case VertexType.ILI:
@@ -235,65 +239,65 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
                         cf.addLeft(xb, yb);
                         px = xb;
                     }
-                    edge.outp.above = cf;
+                    edge.outp_above = cf;
                     cf = null;
                     break;
                 case VertexType.IRI:
-                    cf = edge.outp.below;
+                    cf = edge.outp_below;
                     //if (cf === null) throw new Error("Unexpected Null Polygon");
                     cf.addRight(xb, yb);
                     px = xb;
-                    edge.outp.below = null;
+                    edge.outp_below = null;
                     break;
                 case VertexType.IMX:
                     //if (cf === null) throw new Error("Unexpected Null Polygon");
-                    //if (edge.outp.below === null) throw new Error("Unexpected Null Polygon");
+                    //if (edge.outp_below === null) throw new Error("Unexpected Null Polygon");
                     if (xb !== px) {
                         cf.addRight(xb, yb);
                         px = xb;
                     }
-                    outPoly.mergeLeft(cf as PolygonNode, edge.outp.below as PolygonNode);
+                    outPoly.mergeLeft(cf as PolygonNode, edge.outp_below as PolygonNode);
                     cf = null;
-                    edge.outp.below = null;
+                    edge.outp_below = null;
                     break;
                 case VertexType.IMM:
                     //if (cf === null) throw new Error("Unexpected Null Polygon");
-                    //if (edge.outp.below === null) throw new Error("Unexpected Null Polygon");
+                    //if (edge.outp_below === null) throw new Error("Unexpected Null Polygon");
                     if (xb !== px) {
                         cf.addRight(xb, yb);
                         px = xb;
                     }
-                    outPoly.mergeLeft(cf as PolygonNode, edge.outp.below as PolygonNode);
-                    edge.outp.below = null;
+                    outPoly.mergeLeft(cf as PolygonNode, edge.outp_below as PolygonNode);
+                    edge.outp_below = null;
                     cf = outPoly.addLocalMin(xb, yb);
-                    edge.outp.above = cf;
+                    edge.outp_above = cf;
                     break;
                 case VertexType.EMM:
                     //if (cf === null) throw new Error("Unexpected Null Polygon");
-                    //if (edge.outp.below === null) throw new Error("Unexpected Null Polygon");
+                    //if (edge.outp_below === null) throw new Error("Unexpected Null Polygon");
                     if (xb !== px) {
                         cf.addLeft(xb, yb);
                         px = xb;
                     }
-                    outPoly.mergeRight(cf as PolygonNode, edge.outp.below as PolygonNode);
-                    edge.outp.below = null;
+                    outPoly.mergeRight(cf as PolygonNode, edge.outp_below as PolygonNode);
+                    edge.outp_below = null;
                     cf = outPoly.addLocalMin(xb, yb);
-                    edge.outp.above = cf;
+                    edge.outp_above = cf;
                     break;
                 case VertexType.LED:
-                    //if (edge.outp.below === null) throw new Error("Unexpected Null Polygon");
+                    //if (edge.outp_below === null) throw new Error("Unexpected Null Polygon");
                     if (edge.bot.y === yb) {
-                        edge.outp.below.addLeft(xb, yb);
+                        edge.outp_below.addLeft(xb, yb);
                     }
-                    edge.outp.above = edge.outp.below;
+                    edge.outp_above = edge.outp_below;
                     px = xb;
                     break;
                 case VertexType.RED:
-                    //if (edge.outp.below === null) throw new Error("Unexpected Null Polygon");
+                    //if (edge.outp_below === null) throw new Error("Unexpected Null Polygon");
                     if (edge.bot.y === yb) {
-                        edge.outp.below.addRight(xb, yb);
+                        edge.outp_below.addRight(xb, yb);
                     }
-                    edge.outp.above = edge.outp.below;
+                    edge.outp_above = edge.outp_below;
                     px = xb;
                     break;
                 default:
@@ -321,78 +325,78 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
             if (((e0.bundle.above[CLIP] !== 0) || (e0.bundle.above[SUBJ] !== 0)) &&
                 ((e1.bundle.above[CLIP] !== 0) || (e1.bundle.above[SUBJ] !== 0))) {
 
-                let p = e0.outp.above;
-                let q = e1.outp.above;
+                let p = e0.outp_above;
+                let q = e1.outp_above;
                 let ix = intersect.point.x;
                 let iy = intersect.point.y + yb;
 
                 switch (itTable.analyzeIntersection(op, e0, e1 as EdgeNode)) {
                     case VertexType.EMN:
-                        e0.outp.above = outPoly.addLocalMin(ix, iy);
-                        e1.outp.above = e0.outp.above;
+                        e0.outp_above = outPoly.addLocalMin(ix, iy);
+                        e1.outp_above = e0.outp_above;
                         break;
                     case VertexType.ERI:
                         if (p !== null) {
                             p.addRight(ix, iy);
-                            e1.outp.above = p;
-                            e0.outp.above = null;
+                            e1.outp_above = p;
+                            e0.outp_above = null;
                         }
                         break;
                     case VertexType.ELI:
                         if (q !== null) {
                             q.addLeft(ix, iy);
-                            e0.outp.above = q;
-                            e1.outp.above = null;
+                            e0.outp_above = q;
+                            e1.outp_above = null;
                         }
                         break;
                     case VertexType.EMX:
                         if ((p !== null) && (q !== null)) {
                             p.addLeft(ix, iy);
                             outPoly.mergeRight(p as PolygonNode, q as PolygonNode);
-                            e0.outp.above = null;
-                            e1.outp.above = null;
+                            e0.outp_above = null;
+                            e1.outp_above = null;
                         }
                         break;
                     case VertexType.IMN:
-                        e0.outp.above = outPoly.addLocalMin(ix, iy);
-                        e1.outp.above = e0.outp.above;
+                        e0.outp_above = outPoly.addLocalMin(ix, iy);
+                        e1.outp_above = e0.outp_above;
                         break;
                     case VertexType.ILI:
                         if (p !== null) {
                             p.addLeft(ix, iy);
-                            e1.outp.above = p;
-                            e0.outp.above = null;
+                            e1.outp_above = p;
+                            e0.outp_above = null;
                         }
                         break;
                     case VertexType.IRI:
                         if (q !== null) {
                             q.addRight(ix, iy);
-                            e0.outp.above = q;
-                            e1.outp.above = null;
+                            e0.outp_above = q;
+                            e1.outp_above = null;
                         }
                         break;
                     case VertexType.IMX:
                         if ((p !== null) && (q !== null)) {
                             p.addRight(ix, iy);
                             outPoly.mergeLeft(p as PolygonNode, q as PolygonNode);
-                            e0.outp.above = null;
-                            e1.outp.above = null;
+                            e0.outp_above = null;
+                            e1.outp_above = null;
                         }
                         break;
                     case VertexType.IMM:
                         if ((p !== null) && (q !== null)) {
                             p.addRight(ix, iy);
                             outPoly.mergeLeft(p as PolygonNode, q as PolygonNode);
-                            e0.outp.above = outPoly.addLocalMin(ix, iy);
-                            e1.outp.above = e0.outp.above;
+                            e0.outp_above = outPoly.addLocalMin(ix, iy);
+                            e1.outp_above = e0.outp_above;
                         }
                         break;
                     case VertexType.EMM:
                         if ((p !== null) && (q !== null)) {
                             p.addLeft(ix, iy);
                             outPoly.mergeRight(p as PolygonNode, q as PolygonNode);
-                            e0.outp.above = outPoly.addLocalMin(ix, iy);
-                            e1.outp.above = e0.outp.above;
+                            e0.outp_above = outPoly.addLocalMin(ix, iy);
+                            e1.outp_above = e0.outp_above;
                         }
                         break;
                     default:
@@ -410,30 +414,64 @@ function process_scanbeams(op: u32, lmtTable: LmtTable, sbte: ScanBeamTreeEntrie
     return outPoly;
 }
 
+function innerBounds(contours: f64[][]): Rectangle[] {
+    let polylen = contours.length;
+    let bounds: Rectangle[] = new Array(polylen);
+        
+    for (let i = 0; i < polylen; i++) {
+        let poly = contours[i];
+        let pointlen = poly.length;
+            
+        let xmin = Infinity;
+        let ymin = Infinity;
+        let xmax = -Infinity;
+        let ymax = -Infinity;
+
+        for (let j = 0; j < pointlen; j+=2) {
+            let x = poly[j];
+            let y = poly[j+1];
+            if (x < xmin) { xmin = x; }
+            if (x > xmax) { xmax = x; }
+            if (y < ymin) { ymin = y; }
+            if (y > ymax) { ymax = y; }
+        }
+        
+        bounds[i] = new Rectangle(xmin, ymin, xmax, ymax);
+    }
+
+    return bounds;
+}
+
 function miniMaxTest(subject: Polygon, clipper: Polygon, op: u32): void {
-    let sBBoxes = subject.innerBounds;
-    let cBBoxes = clipper.innerBounds;
+    let sContrib = subject.contributing as bool[];
+    let cContrib = clipper.contributing as bool[];
+
+    let sBBoxes = innerBounds(subject.contours as f64[][]);
+    let cBBoxes = innerBounds(clipper.contours as f64[][]);
     
-    let clen = cBBoxes.length;
     let slen = sBBoxes.length;
+    let clen = cBBoxes.length;
 
     /* Check all subject contour bounding boxes against clip boxes */
     let oTable: bool[][] = new Array(clen);
     for (let i = 0; i < clen; i++) {
         let c = cBBoxes[i];
+        let minx = c.minx;
+        let maxx = c.maxx;
+        let miny = c.miny;
+        let maxy = c.maxy;
         let row: bool[] = new Array(slen);
         oTable[i] = row;
-        for (let j = 0; j< slen; j++) {
+        for (let j = 0; j < slen; j++) {
             let s = sBBoxes[j];
-            row[j] = !((s.maxx < c.minx) || (s.minx > c.maxx)) &&
-                     !((s.maxy < c.miny) || (s.miny > c.maxy))
+            row[j] = !((s.maxx < minx) || (s.minx > maxx)) &&
+                     !((s.maxy < miny) || (s.miny > maxy))
         }
     }
 
     /* For each clip contour, search for any subject contour overlaps */
     for (let c = 0; c < clen; c++) {
-        let overlap = oTable[c].every((s) => s);
-        clipper.contributing[c] = overlap;
+        cContrib[c] = oTable[c].every((s) => s);
     }
 
     if (op === INT) {
@@ -446,7 +484,8 @@ function miniMaxTest(subject: Polygon, clipper: Polygon, op: u32): void {
                     break;
                 }
             }
-            subject.contributing[s] = overlap;
+
+            sContrib[s] = overlap;
         }
     }
 }
@@ -471,7 +510,7 @@ function contourPass(
             /* Build the next edge list */
             let v = min;
             let e = edgeTable.getNode(eIndex);
-            e.bstate.below = UNBUNDLED;
+            e.bstate_below = UNBUNDLED;
             e.bundle.below[CLIP] = 0;
             e.bundle.below[SUBJ] = 0;
 
@@ -490,15 +529,15 @@ function contourPass(
                 ei.top.y = ev.vertex.y;
                 ei.dx = (ev.vertex.x - ei.bot.x) / (ei.top.y - ei.bot.y);
                 ei.type = type;
-                ei.outp.above = null;
-                ei.outp.below = null;
+                ei.outp_above = null;
+                ei.outp_below = null;
                 ei.next = null;
                 ei.prev = null;
                 ei.succ = ((edgeCount > 1) && (i < (edgeCount - 1))) ? edgeTable.getNode(eIndex + i + 1) : null;
                 ei.pred = ((edgeCount > 1) && (i > 0)) ? edgeTable.getNode(eIndex + i - 1) : null;
                 ei.nextBound = null;
-                ei.bside.clip = (op === DIF) ? RIGHT : LEFT;
-                ei.bside.subj = LEFT;
+                ei.bside_clip = (op === DIF) ? RIGHT : LEFT;
+                ei.bside_subj = LEFT;
             }
 
             lmtTable.insertBound(edgeTable.getNode(min).vertex.y, e);
@@ -526,12 +565,13 @@ function buildLmt(
     op: u32,
 ): void {
     /* Create the entire input polygon edge table in one go */
-    let innerPolies = p.contours;
+    let innerPolies = p.contours as f64[][];
+    let contributing = p.contributing as bool[]
     let iplen = innerPolies.length;
     for (let i = 0; i< iplen; i++) {
-        if (!p.contributing[i]) {
+        if (!contributing[i]) {
             /* Ignore the non-contributing contour */
-            p.contributing[i] = true;
+            contributing[i] = true;
         } else {
             let ip = innerPolies[i];
 

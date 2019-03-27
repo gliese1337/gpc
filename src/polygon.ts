@@ -26,11 +26,16 @@ function clip(op: OperationType, subject: Polygon, clipper: Polygon): Polygon {
     const sEmpty = subject.isEmpty;
     const cEmpty = clipper.isEmpty;
 
-    /* Test for trivial NULL result cases */
-    if ((cEmpty && op === OperationType.INT) ||
-        (sEmpty && (cEmpty || op === OperationType.INT || op === OperationType.DIF))
-    ) {
-        return new SimplePolygon([]);
+    /* Test for trivial cases */
+    if (cEmpty) {
+        return op === OperationType.INT ? clipper : subject;
+    }
+
+    if (sEmpty) {
+        switch(op) {
+            case OperationType.INT: case OperationType.DIF: return subject;
+            case OperationType.ADD: case OperationType.XOR: return clipper;
+        }
     }
 
     /* Identify potentialy contributing contours */

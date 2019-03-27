@@ -16,7 +16,7 @@ export class AetTree {
         /* Set up bundle fields of first edge */
         e0.bundle.above[e0.type] = (e0.top.y !== yb) ? 1 : 0;
         e0.bundle.above[1 - e0.type] = 0;
-        e0.bstate.above = UNBUNDLED;
+        e0.bstate_above = UNBUNDLED;
 
         for (let nextEdge = e0.next; nextEdge !== null; nextEdge = nextEdge.next) {
             let nextType = nextEdge.type;
@@ -25,17 +25,17 @@ export class AetTree {
             /* Set up bundle fields of next edge */
             nextEdge.bundle.above[nextType] = (nextEdge.top.y !== yb) ? 1 : 0;
             nextEdge.bundle.above[nextTypeOpposite] = 0;
-            nextEdge.bstate.above = UNBUNDLED;
+            nextEdge.bstate_above = UNBUNDLED;
 
             /* Bundle edges above the scanbeam boundary if they coincide */
             if (nextEdge.bundle.above[nextType] === 1) {
                 if (EQ(e0.xb, nextEdge.xb) && EQ(e0.dx, nextEdge.dx) && (e0.top.y !== yb)) {
                     nextEdge.bundle.above[nextType] ^= e0.bundle.above[nextType];
                     nextEdge.bundle.above[nextTypeOpposite] = e0.bundle.above[nextTypeOpposite];
-                    nextEdge.bstate.above = BUNDLE_HEAD;
+                    nextEdge.bstate_above = BUNDLE_HEAD;
                     e0.bundle.above[CLIP] = 0;
                     e0.bundle.above[SUBJ] = 0;
-                    e0.bstate.above = BUNDLE_TAIL;
+                    e0.bstate_above = BUNDLE_TAIL;
                 }
 
                 e0 = nextEdge;
@@ -63,13 +63,13 @@ export class AetTree {
                 }
 
                 /* Copy bundle head state to the adjacent tail edge if required */
-                if ((edge.bstate.below === BUNDLE_HEAD) && (prev !== null)) {
-                    if (prev.bstate.below === BUNDLE_TAIL) {
-                        prev.outp.below = edge.outp.below;
-                        prev.bstate.below = UNBUNDLED;
+                if ((edge.bstate_below === BUNDLE_HEAD) && (prev !== null)) {
+                    if (prev.bstate_below === BUNDLE_TAIL) {
+                        prev.outp_below = edge.outp_below;
+                        prev.bstate_below = UNBUNDLED;
                         if (prev.prev !== null) {
-                            if (prev.prev.bstate.below === BUNDLE_TAIL) {
-                                prev.bstate.below = BUNDLE_HEAD;
+                            if (prev.prev.bstate_below === BUNDLE_TAIL) {
+                                prev.bstate_below = BUNDLE_HEAD;
                             }
                         }
                     }
@@ -126,16 +126,16 @@ export class AetTree {
     public swapBundles(e0: EdgeNode, e1: EdgeNode): void {
         /* Swap bundle sides in response to edge crossing */
         if (e0.bundle.above[CLIP] !== 0) {
-            e1.bside.clip = 1 - e1.bside.clip;
+            e1.bside_clip = 1 - e1.bside_clip;
         }
         if (e1.bundle.above[CLIP] !== 0) {
-            e0.bside.clip = 1 - e0.bside.clip;
+            e0.bside_clip = 1 - e0.bside_clip;
         }
         if (e0.bundle.above[SUBJ] !== 0) {
-            e1.bside.subj = 1 - e1.bside.subj;
+            e1.bside_subj = 1 - e1.bside_subj;
         }
         if (e1.bundle.above[SUBJ] !== 0) {
-            e0.bside.subj = 1 - e0.bside.subj;
+            e0.bside_subj = 1 - e0.bside_subj;
         }
 
         /* Swap e0 and e1 bundles in the AET */
@@ -145,8 +145,8 @@ export class AetTree {
             next.prev = e0;
         }
 
-        if (e0.bstate.above === BUNDLE_HEAD) {
-            while (prev !== null && prev.bstate.above === BUNDLE_TAIL) {
+        if (e0.bstate_above === BUNDLE_HEAD) {
+            while (prev !== null && prev.bstate_above === BUNDLE_TAIL) {
                 prev = prev.prev;
             }
         }
@@ -178,8 +178,8 @@ export class AetTree {
             let succ = edge.succ;
             if ((edge.top.y === yt) && (succ !== null)) {
                 /* Replace AET edge by its successor */
-                succ.outp.below = edge.outp.above;
-                succ.bstate.below = edge.bstate.above;
+                succ.outp_below = edge.outp_above;
+                succ.bstate_below = edge.bstate_above;
                 succ.bundle.below[CLIP] = edge.bundle.above[CLIP];
                 succ.bundle.below[SUBJ] = edge.bundle.above[SUBJ];
 
@@ -199,14 +199,14 @@ export class AetTree {
 
             } else {
                 /* Update this edge */
-                edge.outp.below = edge.outp.above;
-                edge.bstate.below = edge.bstate.above;
+                edge.outp_below = edge.outp_above;
+                edge.bstate_below = edge.bstate_above;
                 edge.bundle.below[CLIP] = edge.bundle.above[CLIP];
                 edge.bundle.below[SUBJ] = edge.bundle.above[SUBJ];
                 edge.xb = edge.xt;
             }
 
-            edge.outp.above = null;
+            edge.outp_above = null;
         }
     }
 }

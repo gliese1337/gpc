@@ -3,7 +3,7 @@ import { EdgeNode } from './edgeNode';
 class LmtNode {
     public firstBound: EdgeNode | null = null;  /* Pointer to bound list             */
     constructor(
-        public y: f64,                /* Y coordinate at local minimum     */
+        public y: f64,                          /* Y coordinate at local minimum     */
         public next: LmtNode | null = null,     /* Pointer to next local minimum     */
     ) { }
 }
