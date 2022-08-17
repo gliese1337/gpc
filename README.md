@@ -11,8 +11,8 @@ This module exports a single data type, `Polygon`, which can represent euclidean
 * `bounds: { minx: number, maxx: number, miny: number, maxy: number }` Returns the minimal coordinate-aligned rectangular bounding box for the polygon.
 * `equals(obj: Polygon): boolean` Determine whether two polygons have the same vertex set, including the categorization of vertices as belonging to positive boundaries or holes.
 * `toVertices(): { bounds: { x: number, y: number }[][], holes: { x: number, y: number }[][] }` Exports a description of the polygon as a set of vanilla JS objects. `bounds` is a list of lists of vertices representing the boundaries of positive-area sub-polygons, while holes is a list of lists of vertices representing the boundaries of interior holes.
-* `static fromVertices({ bounds, holes }: { bounds: Vertex[][], holes: Vertex[][] }): Polygon` Creates a complex polygon from an object of the same shape as returned by `toVertices()`. A `Vertex` can be an onject of the form `{ x: number, y: number }` or a two-element array of `[x, y]`.
-* `static fromPoints(points: Vertex[]): Polygon` Creates a simple polygon from a list of vertices, where a `Vertex` can be an onject of the form `{ x: number, y: number }` or a two-element array of `[x, y]`.
+* `static fromVertices({ bounds, holes }: { bounds: Vertex[][], holes: Vertex[][] }): Polygon` Creates a complex polygon from an object of the same shape as returned by `toVertices()`. A `Vertex` can be an object of the form `{ x: number, y: number }` or a two-element array of `[x, y]`.
+* `static fromPoints(points: Vertex[]): Polygon` Creates a simple polygon from a list of vertices, where a `Vertex` can be an object of the form `{ x: number, y: number }` or a two-element array of `[x, y]`.
 * `static intersection(...p: Polygon[]): Polygon` Computes the geometric set intersection of a list of `Polygon`s.
 * `intersection(...p: Polygon[]): Polygon` Computes the geometric set intersection of `this` with a list of additional `Polygon`s.
 * `static union(...p: Polygon[]): Polygon` Computes the geometric set union of a list of `Polygon`s. 

@@ -4,22 +4,38 @@
   "description": "A port of General Polygon Clipper",
   "main": "dist/gpc.js",
   "types": "dist/gpc.d.ts",
-  "files": ["dist/**/*"],
+  "files": [
+    "dist/**/*"
+  ],
   "scripts": {
     "prepare": "npm run build",
-    "build": "node ./node_modules/typescript/bin/tsc"
+    "lint": "eslint . --ext .ts --fix",
+    "build": "tsc",
+    "test": "mocha -r ts-node/register test/**/*-test.ts"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gliese1337/gpc.git"
   },
-  "keywords": ["polygon", "geometry"],
+  "keywords": [
+    "polygon",
+    "geometry"
+  ],
   "author": "Logan R. Kearsley",
   "bugs": {
     "url": "https://github.com/gliese1337/gpc/issues"
   },
   "homepage": "https://github.com/gliese1337/gpc#readme",
   "devDependencies": {
-    "typescript": "^3.3.3333"
+    "@types/chai": "^4.2.14",
+    "@types/mocha": "^8.0.4",
+    "@typescript-eslint/eslint-plugin": "^4.10.0",
+    "@typescript-eslint/parser": "^4.10.0",
+    "chai": "^4.2.0",
+    "eslint": "^7.15.0",
+    "jsmin": "^1.0.1",
+    "mocha": "8.2.1",
+    "ts-node": "9.1.1",
+    "typescript": "^3.9.7"
   }
 }

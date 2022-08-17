@@ -1327,11 +1327,13 @@ export abstract class Polygon {
 
 // MultiPolygon provides support for complex (with multiple disjoint cycles) and simple polygons and holes.
 class MultiPolygon extends Polygon {
+    private numPoints: number;
     constructor(private polyList: Polygon[], private _isHole: boolean = false) {
         super();
         if (_isHole && polyList.length > 1) {
             throw new Error("Complex polygons cannot be holes.");
         }
+        this.numPoints = polyList.reduce((a, n) => a + n.getNumPoints(), 0);
     }
 
     public equals(that: Polygon): boolean {
@@ -1382,11 +1384,16 @@ class MultiPolygon extends Polygon {
     }
 
     public getNumPoints(): number {
-        return this.polyList[0].getNumPoints();
+        return this.numPoints;
     }
 
     public get(index: number): Vertex {
-        return this.polyList[0].get(index);
+        for (const p of this.polyList) {
+            const n = p.getNumPoints();
+            if (index < n) { return p.get(index); }
+            index -= n;
+        }
+        throw new Error("Index out of bounds");
     }
 
     public [isContributing](polyIndex: number): boolean {
