@@ -1266,6 +1266,15 @@ export abstract class Polygon {
     // Return the vertex at the given index.
     public abstract get(index: number): Vertex;
 
+    public abstract iterVertices(): IterableIterator<Vertex>;
+
+    public abstract getArea(): number;
+
+    public abstract contains(p: Vertex|ExternalVertex): -1|0|1;
+    public abstract contains(p: Polygon): -1|0|1;
+
+    public abstract explode(): Polygon[];
+
     public abstract equals(obj: Polygon): boolean;
 
     public abstract toVertices(): { bounds: Vertex[][], holes: Vertex[][] };
@@ -1348,10 +1357,60 @@ function cyclicEqual<T extends { equals(x: T): boolean }>(u: T[], v: T[]): boole
     return false;
 }
 
+// tests if a point is Left|On|Right of an infinite line.
+//    Input:  three points P0, P1, and P2
+//    Return: >0 for P2 left of the line through P0 and P1
+//            =0 for P2  on the line
+//            <0 for P2  right of the line
+//    See: Algorithm 1 "Area of Triangles and Polygons"
+function testLine(P0: Vertex, P1: Vertex, P2: Vertex) {
+    const res = (P1.x - P0.x) * (P2.y - P0.y) - (P2.x -  P0.x) * (P1.y - P0.y);
+    if (Math.abs(res) < EPSILON) { return 0; }
+    return Math.sign(res);
+}
+
+enum Position {
+    INSIDE = 1,
+    OUTSIDE = -1,
+    BOUNDARY = 0,
+}
+
+// Dan Sunday's winding number algorithm
+function wn_poly(P: Vertex, V: Vertex[]): Position {
+    let wn = 0; // the  winding number counter
+    const n = V.length - 1;
+
+    // loop through all edges of the polygon
+    for (let i = 0; i < n; i++) {   // edge from V[i] to  V[i+1]
+        if (V[i].y <= P.y) {        // start y <= P.y
+            if (V[i+1].y  > P.y) {  // an upward crossing
+                const t = testLine( V[i], V[i+1], P);
+                if (t === 0) { return Position.BOUNDARY; }
+                if (t > 0) {  // P left of  edge
+                    ++wn;     // have a valid up intersect
+                }
+            }
+        }
+        else {                        // start y > P.y (no test needed)
+            if (V[i+1].y  <= P.y) {   // a downward crossing
+                const t = testLine( V[i], V[i+1], P);
+                if (t === 0) { return Position.BOUNDARY; }
+                if (t < 0) { // P right of  edge
+                    --wn;    // have a valid down intersect
+                }
+            }
+        }
+    }
+
+    return wn === 0 ? Position.OUTSIDE : Position.INSIDE;
+}
+
 // A simple polygon, with only one inner polygon--itself.
 class SimplePolygon extends Polygon {
 
     private pointList: Vertex[];
+    private hasArea = false;
+    private area = 0;
 
     /** Flag used by the Clip algorithm */
     private contributes: boolean = true;
@@ -1419,6 +1478,51 @@ class SimplePolygon extends Polygon {
         return this.pointList[index];
     }
 
+    public iterVertices(): IterableIterator<Vertex> {
+        return this.pointList[Symbol.iterator]();
+    }
+
+    public getArea(): number {
+        if (this.hasArea) { return this.area; }
+        let area = 0;
+        const { pointList } = this;
+        const numPoints = pointList.length;
+        let j = numPoints - 1;
+        for (let i = 0; i < numPoints; i++) {
+            area += (pointList[j].x+pointList[i].x) * (pointList[j].y-pointList[i].y); 
+            j = i;
+        }
+        area = Math.abs(area/2) * (this._isHole ? -1 : 1);
+        this.hasArea = true;
+        this.area = area;
+        return area;
+    }
+
+    public contains(p: Vertex | ExternalVertex): 0 | 1 | -1;
+    public contains(p: Polygon): 0 | 1 | -1;
+    public contains(p: unknown): 0 | 1 | -1 {
+        if (p instanceof Polygon) {
+            let inside = 0;
+            let outside = 0;
+            for (const v of p.iterVertices()) {
+                const pos = wn_poly(v, this.pointList);
+                if (pos === Position.INSIDE) { inside++; }
+                else if(pos === Position.OUTSIDE) { outside++; }
+            }
+            if (inside > 0 && outside === 0) { return this._isHole ? Position.OUTSIDE : Position.INSIDE; }
+            if (outside > 0 && inside === 0) { return this._isHole ? Position.INSIDE : Position.OUTSIDE; }
+            return Position.BOUNDARY;
+        }
+        if (p instanceof Array) {
+            p = { x: p[0], y: p[1] };
+        }
+        return wn_poly(p as Vertex, this.pointList);
+    }
+
+    public explode() {
+        return [this];
+    }
+
     public [isContributing](polyIndex: number): boolean {
         if (polyIndex !== 0) {
             throw new Error("SimplePolygon only has one poly");
@@ -1444,7 +1548,11 @@ class SimplePolygon extends Polygon {
 
 // MultiPolygon provides support for complex (with multiple disjoint cycles) and simple polygons and holes.
 class MultiPolygon extends Polygon {
+
     private numPoints: number;
+    private hasArea = false;
+    private area = 0;
+
     constructor(private polyList: SimplePolygon[]) {
         super();
         this.numPoints = polyList.reduce((a, n) => a + n.getNumPoints(), 0);
@@ -1507,6 +1615,78 @@ class MultiPolygon extends Polygon {
             index -= n;
         }
         throw new Error("Index out of bounds");
+    }
+
+    public *iterVertices(): IterableIterator<Vertex> {
+        for (const p of this.polyList) {
+            yield * (p as any).pointList;
+        }
+    }
+
+    public getArea(): number {
+        if (this.hasArea) { return this.area; }
+        this.hasArea = true;
+        const area = this.polyList.reduce((a, n) => a + n.getArea(), 0);
+        this.area = area;
+        return area;
+    }
+
+    public contains(p: Vertex | ExternalVertex): 0 | 1 | -1;
+    public contains(p: Polygon): 0 | 1 | -1;
+    public contains(p: unknown): 0 | 1 | -1 {
+        if (p instanceof Polygon) {
+            let inside = 0;
+            let outside = 0;
+            for (const v of p.iterVertices()) {
+                const contained = this.polyList.some(ipoly => ipoly.contains(v) !== Position.OUTSIDE);
+                if (contained) { inside++; }
+                else { outside++; }
+            }
+            if (inside > 0 && outside === 0) { return Position.INSIDE; }
+            if (outside > 0 && inside === 0) { return Position.OUTSIDE; }
+            return Position.BOUNDARY;
+        }
+        if (p instanceof Array) {
+            p = { x: p[0], y: p[1] };
+        }
+        let inside = 0;
+        let boundary = 0;
+        for (const ipoly of this.polyList) {
+            const pos = ipoly.contains(p as Vertex);
+            if (pos === Position.INSIDE) { inside++; }
+            else if (pos === Position.BOUNDARY) { boundary++; }
+        }
+        if (inside > 0) { return Position.INSIDE; }
+        if (boundary > 0) { return Position.BOUNDARY; }
+        return Position.OUTSIDE;
+    }
+
+    public explode() {
+        const bounds: SimplePolygon[] = [];
+        const holes = new Set<SimplePolygon>();
+
+        for (const poly of this.polyList) {
+            if (poly.isHole) { holes.add(poly); }
+            else { bounds.push(poly); }
+        }
+
+        const result: Polygon[] = [];
+        for (const b of bounds) {
+            const components = [b];
+            for (const h of holes) {
+                if (wn_poly(h.get(0), (b as any).pointList) === Position.INSIDE) {
+                    components.push(h);
+                    holes.delete(h);
+                }
+            }
+            if (components.length === 1) {
+                result.push(b);
+            } else {
+                result.push(new MultiPolygon(components));
+            }
+        }
+
+        return result;
     }
 
     public [isContributing](polyIndex: number): boolean {
