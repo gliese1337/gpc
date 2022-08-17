@@ -1,12 +1,10 @@
-class Vertex {
-    constructor(public x: number, public y: number) { }
+type Vertex = {
+    x: number;
+    y: number;
+}
 
-    public equals(obj: Vertex): boolean {
-        if (this === obj) { return true; }
-        if (obj === null || obj === void 0) { return false; }
-
-        return this.x === obj.x && this.y === obj.y;
-    }
+function vert_eql(a: Vertex, b: Vertex): boolean {
+    return a.x === b.x && a.y === b.y;
 }
 
 const EPSILON = 2.2204460492503131e-16;
@@ -834,8 +832,8 @@ enum BundleState {
 
 class EdgeNode {
     public vertex: Vertex;                                     /* Piggy-backed contour vertex data  */
-    public bot: Vertex = new Vertex(NaN, NaN);                 /* Edge lower (x, y) coordinate      */
-    public top: Vertex = new Vertex(NaN, NaN);                 /* Edge upper (x, y) coordinate      */
+    public bot: Vertex = { x: NaN, y: NaN };                   /* Edge lower (x, y) coordinate      */
+    public top: Vertex = { x: NaN, y: NaN };                   /* Edge upper (x, y) coordinate      */
     public xb: number = NaN;                                   /* Scanbeam bottom x coordinate      */
     public xt: number = NaN;                                   /* Scanbeam top x coordinate         */
     public dx: number = NaN;                                   /* Change in x for a unit y increase */
@@ -851,7 +849,7 @@ class EdgeNode {
     public nextBound: EdgeNode | null = null;   /* Pointer to next bound in LMT      */
 
     constructor(x: number, y: number) {
-        this.vertex = new Vertex(x, y);
+        this.vertex = { x, y };
         this.bside = { clip: 0, subj: 0 };
         this.bundle = { above: [0, 0], below: [0, 0] };
         this.bstate = { above: null, below: null };
@@ -980,7 +978,7 @@ class ItNode {
 
     constructor(edge0: EdgeNode, edge1: EdgeNode, x: number, y: number, next: ItNode | null) {
         this.ie = [edge0, edge1];
-        this.point = new Vertex(x, y);
+        this.point = { x, y };
         this.next = next;
     }
 }
@@ -1014,10 +1012,8 @@ class LmtTable {
     public top: LmtNode | null = null;
 }
 
-class VertexNode extends Vertex {
-    constructor(x: number, y: number, public next: VertexNode | null = null) {
-        super(x, y);
-    }
+class VertexNode {
+    constructor(public x: number, public y: number, public next: VertexNode | null = null) { }
 }
 
 enum VertexType {
@@ -1233,13 +1229,22 @@ class TopPolygonNode {
             return new SimplePolygon([]);
         }
 
-        const innerPolies = contours.map((polyNode) => {
-            const vertices: Vertex[] = [];
+        const innerPolies = contours.flatMap((polyNode) => {
+            const polys: SimplePolygon[] = [];
+            const isHole = polyNode.proxy.hole;
+            let vertices: Vertex[] = [];
             for (let vtx: VertexNode | null = polyNode.proxy.left; vtx !== null; vtx = vtx.next) {
-                vertices.push(vtx);
+                for (let i = vertices.length - 1; i >= 0; i--) {
+                    if (vert_eql(vertices[i], vtx)) {
+                        polys.push(new SimplePolygon(vertices.slice(i), isHole));
+                        vertices.length = i;
+                    }
+                }
+                vertices.push({ x: vtx.x, y: vtx.y });
             }
 
-            return new SimplePolygon(vertices, polyNode.proxy.hole); 
+            polys.push(new SimplePolygon(vertices, isHole));
+            return polys; 
         });
 
         return (innerPolies.length === 1) ? innerPolies[0] : new MultiPolygon(innerPolies);
@@ -1248,7 +1253,105 @@ class TopPolygonNode {
 
 type ExternalVertex = { x: number, y: number } | [number, number];
 
+// Graham Scan Convex Hull Algorithm
+ 
+// A utility function to return square of distance
+// between p1 and p2
+function distSq(p1: Vertex, p2: Vertex) {
+    return ((p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y));
+}
+ 
+// To find orientation of ordered triplet (p, q, r).
+// The function returns following values
+// = 0 --> p, q and r are collinear
+// > 0 --> Clockwise
+// < 0 --> Counterclockwise
+function orientation(p: Vertex, q: Vertex, r: Vertex) {
+    return (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+}
+ 
+// Prints convex hull of a set of n points.
+function convexHull(P: Iterable<Vertex>): Vertex[] {
+    const points: Vertex[] = [];
+
+    // Find the bottommost point
+    let xmin = Number.POSITIVE_INFINITY;
+    let ymin = Number.POSITIVE_INFINITY;
+    let min = 0;
+    for (const p of P) {
+        const y = p.y;
+ 
+        // Pick the left-most bottom-most point
+        if ((y < ymin) || ((ymin === y) && (p.x < xmin))) {
+            ymin = y;
+            min = points.length;
+        }
+        
+        points.push(p);
+    }
+ 
+    // Place the bottom-most point at first position
+    points[0], points[min] = points[min], points[0];
+ 
+    // Sort n-1 points with respect to the first point.
+    // A point p1 comes before p2 in sorted output if p2
+    // has larger polar angle (in counterclockwise
+    // direction) than p1, or if it has an equal angle
+    // but larger distance.
+    const p0 = points[0];
+    let collinear = false;
+    points.sort((p1: Vertex, p2: Vertex) => {
+        const o = orientation(p0, p1, p2);
+        if (o === 0) {
+            collinear = true;
+            return (distSq(p0, p2) >= distSq(p0, p1)) ? -1 : 1;
+        }
+        return o;
+    });
+     
+ 
+    let m = 1;
+    // If two or more points make same angle with p0,
+    // Remove all but the one that is farthest from p0
+    if (collinear) {
+        const n = points.length;
+        for (let i = 1; i < n; i++) {
+            // Keep removing i while angle of i and i+1 is same with respect to p0
+            while ((i < n - 1) && (orientation(p0, points[i], points[i + 1]) === 0)) {
+                i++;
+            }
+    
+            points[m++] = points[i];
+        }
+    } else {
+        m = points.length;
+    }
+ 
+    if (m <= 3) { return points; }
+ 
+    // Create an empty stack and push first three points to it.
+    // We re-use the prefix of `points` for the stack space. 
+    let sl = 3;
+    
+    // Process remaining n-3 points
+    for (let i = 3; i < m; i++) {
+        // Keep removing top while the angle formed by
+        // points next-to-top, top, and points[i] makes
+        // a non-left turn
+        while (sl >= 2 && (orientation(points[sl - 2], points[sl - 1], points[i]) < 0)) {
+            sl--;
+        }
+        points[sl++] = points[i];
+    }
+ 
+    points.length = sl;
+
+    return points;
+}
+
 export abstract class Polygon {
+    private hull: Polygon | null = null;
+
     public abstract get isEmpty(): boolean;
     public abstract get isHole(): boolean;
     public abstract get bounds(): Rectangle;
@@ -1270,7 +1373,7 @@ export abstract class Polygon {
 
     public abstract getArea(): number;
 
-    public abstract contains(p: Vertex|ExternalVertex): -1|0|1;
+    public abstract contains(p: ExternalVertex): -1|0|1;
     public abstract contains(p: Polygon): -1|0|1;
 
     public abstract explode(): Polygon[];
@@ -1278,6 +1381,10 @@ export abstract class Polygon {
     public abstract equals(obj: Polygon): boolean;
 
     public abstract toVertices(): { bounds: Vertex[][], holes: Vertex[][] };
+
+    public toJSON() {
+        return this.toVertices();
+    }
 
     private static n_ary(op: OperationType, ...polys: Polygon[]): Polygon {
         return polys.reduce((acc, p) => clip(op, acc, p));
@@ -1322,6 +1429,12 @@ export abstract class Polygon {
         return Polygon.difference(this, ...p);        
     }
 
+    public getHull(): Polygon {
+        if (this.hull) { return this.hull; }
+        this.hull = new SimplePolygon(convexHull(this.iterVertices()), false);
+        return this.hull;
+    }
+
     public static fromPoints(points: ExternalVertex[]): Polygon {
         return new SimplePolygon(points.map((p) => Array.isArray(p) ? { x: p[0]||0, y: p[1]||0 } : p), false);
     }
@@ -1336,13 +1449,13 @@ export abstract class Polygon {
     }
 }
 
-function cyclicEqual<T extends { equals(x: T): boolean }>(u: T[], v: T[]): boolean {
+function cyclicEqual(u: Vertex[], v: Vertex[]): boolean {
     const n = u.length;
     if (n === v.length) {
         let i = 0;
         do {
             let k = 1;
-            while (k <= n && u[(i + k) % n].equals(v[k % n])) {
+            while (k <= n && vert_eql(u[(i + k) % n], v[k % n])) {
                 k++;
             }
 
@@ -1408,16 +1521,14 @@ function wn_poly(P: Vertex, V: Vertex[]): Position {
 // A simple polygon, with only one inner polygon--itself.
 class SimplePolygon extends Polygon {
 
-    private pointList: Vertex[];
     private hasArea = false;
     private area = 0;
 
     /** Flag used by the Clip algorithm */
     private contributes: boolean = true;
 
-    constructor(points: { x: number, y: number }[], private _isHole = false) {
+    constructor(private pointList: Vertex[], private _isHole = false) {
         super();
-        this.pointList = points.map(({ x, y }) => new Vertex(x, y));
     }
 
     public equals(that: Polygon): boolean {
@@ -1498,7 +1609,7 @@ class SimplePolygon extends Polygon {
         return area;
     }
 
-    public contains(p: Vertex | ExternalVertex): 0 | 1 | -1;
+    public contains(p: ExternalVertex): 0 | 1 | -1;
     public contains(p: Polygon): 0 | 1 | -1;
     public contains(p: unknown): 0 | 1 | -1 {
         if (p instanceof Polygon) {
@@ -1631,7 +1742,7 @@ class MultiPolygon extends Polygon {
         return area;
     }
 
-    public contains(p: Vertex | ExternalVertex): 0 | 1 | -1;
+    public contains(p: ExternalVertex): 0 | 1 | -1;
     public contains(p: Polygon): 0 | 1 | -1;
     public contains(p: unknown): 0 | 1 | -1 {
         if (p instanceof Polygon) {
