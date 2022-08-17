@@ -1239,9 +1239,7 @@ class TopPolygonNode {
                 vertices.push(vtx);
             }
 
-            const simple = new SimplePolygon(vertices);
-
-            return polyNode.proxy.hole ? new MultiPolygon([simple], true) : simple; 
+            return new SimplePolygon(vertices, polyNode.proxy.hole); 
         });
 
         return (innerPolies.length === 1) ? innerPolies[0] : new MultiPolygon(innerPolies);
@@ -1262,10 +1260,10 @@ export abstract class Polygon {
 
     public abstract getInnerPolies(): Polygon[];
 
-    // Return the number points of the first inner polygon.
+    // Return the number points in the polygon.
     public abstract getNumPoints(): number;
 
-    // Return the vertex at the given index in the first inner polygon.
+    // Return the vertex at the given index.
     public abstract get(index: number): Vertex;
 
     public abstract equals(obj: Polygon): boolean;
@@ -1316,7 +1314,11 @@ export abstract class Polygon {
     }
 
     public static fromPoints(points: ExternalVertex[]): Polygon {
-        return new SimplePolygon(points.map((p) => Array.isArray(p) ? { x: p[0]||0, y: p[1]||0 } : p));
+        return new SimplePolygon(points.map((p) => Array.isArray(p) ? { x: p[0]||0, y: p[1]||0 } : p), false);
+    }
+    
+    public static holeFromPoints(points: ExternalVertex[]): Polygon {
+        return new SimplePolygon(points.map((p) => Array.isArray(p) ? { x: p[0]||0, y: p[1]||0 } : p), true);
     }
 
     public static fromVertices({ bounds, holes }: { bounds: ExternalVertex[][], holes: ExternalVertex[][] }): Polygon {
@@ -1325,25 +1327,136 @@ export abstract class Polygon {
     }
 }
 
+function cyclicEqual<T extends { equals(x: T): boolean }>(u: T[], v: T[]): boolean {
+    const n = u.length;
+    if (n === v.length) {
+        let i = 0;
+        do {
+            let k = 1;
+            while (k <= n && u[(i + k) % n].equals(v[k % n])) {
+                k++;
+            }
+
+            if (k > n) {
+                return true;
+            }
+
+            i += k;
+        } while (i < n);
+    }
+
+    return false;
+}
+
+// A simple polygon, with only one inner polygon--itself.
+class SimplePolygon extends Polygon {
+
+    private pointList: Vertex[];
+
+    /** Flag used by the Clip algorithm */
+    private contributes: boolean = true;
+
+    constructor(points: { x: number, y: number }[], private _isHole = false) {
+        super();
+        this.pointList = points.map(({ x, y }) => new Vertex(x, y));
+    }
+
+    public equals(that: Polygon): boolean {
+        if (!(that instanceof SimplePolygon) || this._isHole != that._isHole) {
+            return false;
+        }
+
+        if (cyclicEqual(this.pointList, that.pointList)) {
+            return true;
+        }
+
+        const reversed: Vertex[] = [];
+        for (let i = this.pointList.length - 1; i >= 0; i--) {
+            reversed.push(this.pointList[i]);
+        }
+
+        return cyclicEqual(reversed, that.pointList);
+    }
+
+    public get isHole(): boolean {
+        return this._isHole;
+    }
+
+    public get isEmpty(): boolean {
+        return this.pointList.length === 0;
+    }
+
+    private _bounds: Rectangle | null = null;
+    public get bounds(): Rectangle {
+        if (this._bounds === null) {
+            let xmin = Number.MAX_VALUE;
+            let ymin = Number.MAX_VALUE;
+            let xmax = -Number.MAX_VALUE;
+            let ymax = -Number.MAX_VALUE;
+
+            for (const { x, y } of this.pointList) {
+                if (x < xmin) { xmin = x; }
+                if (x > xmax) { xmax = x; }
+                if (y < ymin) { ymin = y; }
+                if (y > ymax) { ymax = y; }
+            }
+
+            this._bounds = new Rectangle(xmin, ymin, xmax, ymax);
+        }
+
+        return this._bounds;
+    }
+
+    public getInnerPolies(): Polygon[] {
+        return [this];
+    }
+
+    public getNumPoints(): number {
+        return this.pointList.length;
+    }
+
+    public get(index: number): Vertex {
+        return this.pointList[index];
+    }
+
+    public [isContributing](polyIndex: number): boolean {
+        if (polyIndex !== 0) {
+            throw new Error("SimplePolygon only has one poly");
+        }
+
+        return this.contributes;
+    }
+
+    public [setContributing](polyIndex: number, contributes: boolean): void {
+        if (polyIndex !== 0) {
+            throw new Error("SimplePolygon only has one poly");
+        }
+
+        this.contributes = contributes;
+    }
+
+    public toVertices(): { bounds: Vertex[][], holes: Vertex[][] } {
+        return this._isHole ? 
+            { bounds: [], holes: [this.pointList] }:
+            { bounds: [this.pointList], holes: [] };
+    }
+}
+
 // MultiPolygon provides support for complex (with multiple disjoint cycles) and simple polygons and holes.
 class MultiPolygon extends Polygon {
     private numPoints: number;
-    constructor(private polyList: Polygon[], private _isHole: boolean = false) {
+    constructor(private polyList: SimplePolygon[]) {
         super();
-        if (_isHole && polyList.length > 1) {
-            throw new Error("Complex polygons cannot be holes.");
-        }
         this.numPoints = polyList.reduce((a, n) => a + n.getNumPoints(), 0);
     }
 
     public equals(that: Polygon): boolean {
         return (that instanceof MultiPolygon) &&
-            this._isHole === that._isHole &&
             this.polyList.every((p, i) => p.equals(that.polyList[i]));
     }
 
     public get isHole(): boolean {
-        return this._isHole;
+        return false;
     }
 
     public get isEmpty(): boolean {
@@ -1405,135 +1518,15 @@ class MultiPolygon extends Polygon {
     }
 
     public toVertices(): { bounds: Vertex[][], holes: Vertex[][] } {
-        if (this._isHole) {
-            const { bounds } = this.polyList[0].toVertices();
+        const bounds: Vertex[][] = [];
+        const holes: Vertex[][] = [];
 
-            return { bounds: [], holes: bounds };
-        } else {
-            const bounds: Vertex[][] = [];
-            const holes: Vertex[][] = [];
-
-            for (const poly of this.polyList) {
-                const { bounds: nb, holes: nh } = poly.toVertices();
-                bounds.push(...nb);
-                holes.push(...nh);
-            }
-
-            return { bounds, holes };
-        }
-    }
-}
-
-function cyclicEqual<T extends { equals(x: T): boolean }>(u: T[], v: T[]): boolean {
-    const n = u.length;
-    if (n === v.length) {
-        let i = 0;
-        do {
-            let k = 1;
-            while (k <= n && u[(i + k) % n].equals(v[k % n])) {
-                k++;
-            }
-
-            if (k > n) {
-                return true;
-            }
-
-            i += k;
-        } while (i < n);
-    }
-
-    return false;
-}
-
-// A simple polygon, with only one inner polygon--itself. Cannot be used to represent a hole.
-class SimplePolygon extends Polygon {
-
-    private pointList: Vertex[];
-
-    /** Flag used by the Clip algorithm */
-    private contributes: boolean = true;
-
-    constructor(points: { x: number, y: number }[]) {
-        super();
-        this.pointList = points.map(({ x, y }) => new Vertex(x, y));
-    }
-
-    public equals(that: Polygon): boolean {
-        if (!(that instanceof SimplePolygon)) {
-            return false;
+        for (const poly of this.polyList) {
+            const { bounds: nb, holes: nh } = poly.toVertices();
+            bounds.push(...nb);
+            holes.push(...nh);
         }
 
-        if (cyclicEqual(this.pointList, that.pointList)) {
-            return true;
-        }
-
-        const reversed: Vertex[] = [];
-        for (let i = this.pointList.length - 1; i >= 0; i--) {
-            reversed.push(this.pointList[i]);
-        }
-
-        return cyclicEqual(reversed, that.pointList);
-    }
-
-    // Always returns false since SimplePolygons cannot be holes.
-    public get isHole(): boolean {
-        return false;
-    }
-
-    public get isEmpty(): boolean {
-        return this.pointList.length === 0;
-    }
-
-    private _bounds: Rectangle | null = null;
-    public get bounds(): Rectangle {
-        if (this._bounds === null) {
-            let xmin = Number.MAX_VALUE;
-            let ymin = Number.MAX_VALUE;
-            let xmax = -Number.MAX_VALUE;
-            let ymax = -Number.MAX_VALUE;
-
-            for (const { x, y } of this.pointList) {
-                if (x < xmin) { xmin = x; }
-                if (x > xmax) { xmax = x; }
-                if (y < ymin) { ymin = y; }
-                if (y > ymax) { ymax = y; }
-            }
-
-            this._bounds = new Rectangle(xmin, ymin, xmax, ymax);
-        }
-
-        return this._bounds;
-    }
-
-    public getInnerPolies(): Polygon[] {
-        return [this];
-    }
-
-    public getNumPoints(): number {
-        return this.pointList.length;
-    }
-
-    public get(index: number): Vertex {
-        return this.pointList[index];
-    }
-
-    public [isContributing](polyIndex: number): boolean {
-        if (polyIndex !== 0) {
-            throw new Error("PolySimple only has one poly");
-        }
-
-        return this.contributes;
-    }
-
-    public [setContributing](polyIndex: number, contributes: boolean): void {
-        if (polyIndex !== 0) {
-            throw new Error("PolySimple only has one poly");
-        }
-
-        this.contributes = contributes;
-    }
-
-    public toVertices(): { bounds: Vertex[][], holes: Vertex[][] } {
-        return { bounds: [this.pointList], holes: [] };
+        return { bounds, holes };
     }
 }
