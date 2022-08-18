@@ -20,6 +20,9 @@ describe("Test unions", () => {
   
   it("should produce a large hexagonal convex hull", () => { 
     const p1 = Polygon.union(up, dn).getHull();
+    expect([...p1.iterVertices()].map(({ x, y }) => Math.hypot(x,y)))
+      .eqls([1, 1, 1, 1, 1, 1]);
+    
     expect(p1.getNumPoints()).eql(6);
   });
 

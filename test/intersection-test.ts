@@ -11,7 +11,7 @@ describe("Test intersections", () => {
 
   it("should produce a hexagon", () => {
     const p1 = up.intersection(dn);
-    expect(p1.getNumPoints()).eql(6);
+    expect(p1.getNumPoints()).eql(6);    
     const p2 = dn.intersection(up);
     expect(p1.equals(p2), "Intersection is not commutative.");
     const p3 = Polygon.intersection(up, dn);
