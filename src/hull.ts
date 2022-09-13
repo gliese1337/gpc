@@ -1,37 +1,38 @@
 import { Vertex } from "./util";
 
-// Graham Scan Convex Hull Algorithm
-// This is destructive
-export function convexHull(points: Vertex[]) {
+function ccw(a: Vertex, b: Vertex, c: Vertex) {
+    return (b.y - a.y)*(c.x - a.x) - (b.x - a.x)*(c.y - a.y);
+}
+
+// Graham scan. Assumes a simple polygon.
+export function polygonHull(points: Vertex[]) {
     const n = points.length;
-    if (n <= 3) return points;
-    
+
+    // There can never be fewer than 4 vertices.
     // Assume the first point is bottom-left-most
-    const { x: px, y: py } = points[0];
+    const p0 = points[0];
 
-    // Sort by angle
-    points.sort((a, b) => {
-        const c = (a.y - py)*(b.x - px) - (a.x - px)*(b.y - py);
-        return c === 0 ? a.x - b.x : c;
-    });
-
-    // Keep points in the result if they "turn left"
-    let len = 1;
-    for (let i = 1; i < n; i++) {
-        let b = points[len-1];
-        let c = points[i];
-        //if (b.x === c.x && b.y === c.y) { continue; }
-        if (len >= 2) {
-            let a = points[len-2];
-            while ((b.x-a.x) * (c.y-a.y) <= (b.y-a.y) * (c.x-a.x)) {
-                len--;
-                if (len < 2) { break; }
-                b = a;
-                a = points[len-2];
-            }
+    let top = 1;
+    for (let i = 2; i < n; i++) {
+        // Duplicate points are pre-filtered
+        // if (points[top].x === points[i].x && points[top].y === points[i].y) { continue; }
+        points[++top] = points[i];
+        while (top >= 2 && ccw(points[top-2], points[top-1], points[top]) >= 0) {
+            points[top - 1] = points[top]; // delete internal point
+            top--;
         }
-        points[len++] = c;
     }
-    points.length = len;
+
+    // Fix up the join between the tail and start
+    while (ccw(points[top-1], points[top], p0) >= 0) { top--; }
+
+    points.length = top + 1; 
     return points;
+}
+
+export function convexHull(points: Vertex[]) {
+    // Assume the first point is bottom-left-most and sort by angle
+    const p0 = points[0];
+    points.sort((a, b) => ccw(p0, a, b) || a.x - b.x );
+    return polygonHull(points);
 }

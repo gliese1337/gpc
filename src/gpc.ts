@@ -1,7 +1,7 @@
 import { clip } from "./Clip";
 import { forceWinding, isConvex, rotateBottomLeft } from "./Conditioning";
 import { wn_poly, Position } from "./Contains";
-import { convexHull } from "./hull";
+import { convexHull, polygonHull } from "./hull";
 import { IPolygon } from "./IPolygon";
 import { 
     OperationType, setContributing, isContributing,
@@ -244,7 +244,7 @@ class SimplePolygon extends Polygon {
 
     public getHull(): Polygon {
         if (this.hull) { return this.hull; }
-        this.hull = isConvex(this.pointList) ? this : new SimplePolygon(convexHull([...this.iterVertices()]), false);
+        this.hull = isConvex(this.pointList) ? this : new SimplePolygon(polygonHull([...this.iterVertices()]), false);
         return this.hull;
     }
 }

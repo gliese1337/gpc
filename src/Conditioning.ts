@@ -45,7 +45,7 @@ const TWO_PI = 2 * Math.PI;
 
 export function isConvex(points: Vertex[]): boolean {
     const n = points.length;
-    if (n < 3) { return true; }
+    if (n <= 3) { return true; }
     let { x: ox, y: oy } = points[n-2];
     let { x: nx, y: ny } = points[n-1];
     let odir = 0;
@@ -69,6 +69,32 @@ export function isConvex(points: Vertex[]): boolean {
         } else if (orientation * angle < 0) {
             return false;
         }
+        angle_sum += angle;
+    }
+    // Check that the total number of full turns is plus-or-minus 1
+    return Math.abs(Math.round(angle_sum / TWO_PI)) === 1;
+}
+
+export function isSimple(points: Vertex[]): boolean {
+    const n = points.length;
+    if (n <= 3) { return true; }
+    let { x: ox, y: oy } = points[n-2];
+    let { x: nx, y: ny } = points[n-1];
+    let odir = 0;
+    let ndir = Math.atan2(ny - oy, nx - ox);
+    let angle_sum = 0;
+    for (let i = 0; i < n; i++) {
+        const p = points[i];
+        ox = nx;
+        oy = ny;
+        odir = ndir;
+        nx = p.x;
+        ny = p.y;
+        ndir = Math.atan2(ny - oy, nx - ox);
+        let angle = ndir - odir;
+        // shift to the half-open interval (-Pi, Pi]
+        if (angle <= -Math.PI) { angle += TWO_PI; }  
+        else if (angle > Math.PI) { angle -= TWO_PI; }
         angle_sum += angle;
     }
     // Check that the total number of full turns is plus-or-minus 1
